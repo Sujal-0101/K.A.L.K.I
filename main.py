@@ -1,36 +1,77 @@
 import json
 import os
+from datetime import datetime
 from ollama import chat
 
 MEMORY_FILE = "memory.json"
 HISTORY_FILE = "history.json"
 PERSONALITY_FILE = "personality.txt"
+TASKS_FILE = "tasks.json"
+REMINDERS_FILE = "reminders.json"
+
 MODEL_NAME = "gemma3:4b"
 MAX_HISTORY = 10
 
 
 # -------------------------
-# MEMORY FUNCTIONS
+# FILE HELPERS
+# -------------------------
+
+def load_json_file(filename, default):
+    if not os.path.exists(filename):
+        return default
+    try:
+        with open(filename, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, FileNotFoundError):
+        save_json_file(filename, default)
+        return default
+
+
+def save_json_file(filename, data):
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+# -------------------------
+# LOADERS / SAVERS
 # -------------------------
 
 def load_memory():
-    default_memory = {"facts": [], "goals": [], "notes": []}
-
-    if not os.path.exists(MEMORY_FILE):
-        return default_memory
-
-    try:
-        with open(MEMORY_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, FileNotFoundError):
-        save_memory(default_memory)
-        return default_memory
+    return load_json_file(MEMORY_FILE, {"facts": [], "goals": [], "notes": []})
 
 
 def save_memory(memory):
-    with open(MEMORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(memory, f, indent=2, ensure_ascii=False)
+    save_json_file(MEMORY_FILE, memory)
 
+
+def load_history():
+    return load_json_file(HISTORY_FILE, [])
+
+
+def save_history(history):
+    save_json_file(HISTORY_FILE, history)
+
+
+def load_tasks():
+    return load_json_file(TASKS_FILE, [])
+
+
+def save_tasks(tasks):
+    save_json_file(TASKS_FILE, tasks)
+
+
+def load_reminders():
+    return load_json_file(REMINDERS_FILE, [])
+
+
+def save_reminders(reminders):
+    save_json_file(REMINDERS_FILE, reminders)
+
+
+# -------------------------
+# FORMATTERS
+# -------------------------
 
 def format_memory(memory):
     lines = []
@@ -49,26 +90,29 @@ def format_memory(memory):
     return "\n".join(lines) if lines else "No memory stored yet."
 
 
+def format_tasks(tasks):
+    if not tasks:
+        return "No tasks saved."
+    lines = []
+    for i, task in enumerate(tasks, 1):
+        status = "✅" if task["done"] else "❌"
+        lines.append(f"{i}. {status} {task['text']}")
+    return "\n".join(lines)
+
+
+def format_reminders(reminders):
+    if not reminders:
+        return "No reminders saved."
+    lines = []
+    for i, reminder in enumerate(reminders, 1):
+        status = "✅" if reminder.get("done") else "⏰"
+        lines.append(f"{i}. {status} {reminder['time']} - {reminder['text']}")
+    return "\n".join(lines)
+
+
 # -------------------------
-# HISTORY FUNCTIONS
+# HISTORY
 # -------------------------
-
-def load_history():
-    if not os.path.exists(HISTORY_FILE):
-        return []
-
-    try:
-        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, FileNotFoundError):
-        save_history([])
-        return []
-
-
-def save_history(history):
-    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(history, f, indent=2, ensure_ascii=False)
-
 
 def add_to_history(role, content, history):
     history.append({"role": role, "content": content})
@@ -89,7 +133,7 @@ def load_personality():
 
 
 # -------------------------
-# MEMORY STORAGE TRIGGERS
+# MEMORY STORAGE
 # -------------------------
 
 def maybe_store_memory(user_input, memory):
@@ -120,11 +164,48 @@ def maybe_store_memory(user_input, memory):
 
 
 # -------------------------
+# REMINDER CHECKER
+# -------------------------
+
+def check_due_reminders(reminders):
+    now = datetime.now().strftime("%H:%M")
+    due = []
+
+    for reminder in reminders:
+        if reminder["time"] == now and not reminder.get("done", False):
+            due.append(reminder)
+            reminder["done"] = True
+
+    if due:
+        save_reminders(reminders)
+
+    return due
+
+
+# -------------------------
+# PROACTIVE FOCUS PROMPT
+# -------------------------
+
+def generate_focus_prompt(tasks, memory):
+    undone_tasks = [task["text"] for task in tasks if not task["done"]]
+    goals = memory.get("goals", [])
+
+    if undone_tasks:
+        return f"You still have unfinished tasks. Start with this: {undone_tasks[0]}"
+    elif goals:
+        return f"You have goals saved. Pick one and work on it for 15 minutes: {goals[0]}"
+    else:
+        return "You have no tasks or goals saved. Set one small target right now."
+
+
+# -------------------------
 # COMMAND SYSTEM
 # -------------------------
 
-def handle_command(user_input, memory, history):
-    command = user_input.lower().strip()
+def handle_command(user_input, memory, history, tasks, reminders):
+    parts = user_input.strip().split(" ", 1)
+    command = parts[0].lower()
+    argument = parts[1].strip() if len(parts) > 1 else ""
 
     if command == "/help":
         return """
@@ -136,41 +217,80 @@ Available commands:
 /facts - Show saved facts
 /history - Show recent chat history
 /clearhistory - Clear recent conversation history
+
+/task <text> - Add a new task
+/tasks - Show all tasks
+/done <number> - Mark a task as done
+
+/remind HH:MM your reminder text - Add a reminder
+/reminders - Show all reminders
+
+/focus - Get a productivity nudge
 """
 
     elif command == "/memory":
         return format_memory(memory)
 
     elif command == "/goals":
-        goals = memory.get("goals", [])
-        return "\n".join([f"- {g}" for g in goals]) if goals else "No goals saved."
+        return "\n".join([f"- {g}" for g in memory.get("goals", [])]) or "No goals saved."
 
     elif command == "/notes":
-        notes = memory.get("notes", [])
-        return "\n".join([f"- {n}" for n in notes]) if notes else "No notes saved."
+        return "\n".join([f"- {n}" for n in memory.get("notes", [])]) or "No notes saved."
 
     elif command == "/facts":
-        facts = memory.get("facts", [])
-        return "\n".join([f"- {f}" for f in facts]) if facts else "No facts saved."
+        return "\n".join([f"- {f}" for f in memory.get("facts", [])]) or "No facts saved."
 
     elif command == "/history":
-        if not history:
-            return "No recent chat history."
-        return "\n".join([f"{msg['role'].capitalize()}: {msg['content']}" for msg in history])
+        return "\n".join([f"{msg['role'].capitalize()}: {msg['content']}" for msg in history]) or "No recent chat history."
 
     elif command == "/clearhistory":
         save_history([])
         return "Recent chat history cleared."
 
+    elif command == "/task":
+        if not argument:
+            return "Usage: /task Finish assignment"
+        tasks.append({"text": argument, "done": False})
+        save_tasks(tasks)
+        return f"Task added: {argument}"
+
+    elif command == "/tasks":
+        return format_tasks(tasks)
+
+    elif command == "/done":
+        if not argument.isdigit():
+            return "Usage: /done 1"
+        index = int(argument) - 1
+        if 0 <= index < len(tasks):
+            tasks[index]["done"] = True
+            save_tasks(tasks)
+            return f"Marked task {index + 1} as done."
+        return "Invalid task number."
+
+    elif command == "/remind":
+        if not argument or len(argument.split(" ", 1)) < 2:
+            return "Usage: /remind 21:30 Drink water"
+        time_part, text_part = argument.split(" ", 1)
+        reminders.append({"time": time_part, "text": text_part, "done": False})
+        save_reminders(reminders)
+        return f"Reminder set for {time_part}: {text_part}"
+
+    elif command == "/reminders":
+        return format_reminders(reminders)
+
+    elif command == "/focus":
+        return generate_focus_prompt(tasks, memory)
+
     return None
 
 
 # -------------------------
-# BUILD MESSAGES FOR MODEL
+# BUILD MESSAGES
 # -------------------------
 
-def build_messages(user_input, personality, memory, history):
+def build_messages(user_input, personality, memory, history, tasks):
     memory_text = format_memory(memory)
+    task_text = format_tasks(tasks)
 
     system_prompt = f"""
 {personality}
@@ -178,7 +298,10 @@ def build_messages(user_input, personality, memory, history):
 Here is the assistant's current long-term memory:
 {memory_text}
 
-Use this memory when relevant, but do not mention it unnecessarily.
+Current tasks:
+{task_text}
+
+Use this information when relevant, but do not mention it unnecessarily.
 """
 
     messages = [{"role": "system", "content": system_prompt}]
@@ -193,13 +316,20 @@ Use this memory when relevant, but do not mention it unnecessarily.
 # -------------------------
 
 def main():
-    print("Kalki v0.2 is running. Type 'exit' to quit.\n")
+    print("Kalki v0.3 is running. Type 'exit' to quit.\n")
 
     personality = load_personality()
     memory = load_memory()
     history = load_history()
+    tasks = load_tasks()
+    reminders = load_reminders()
 
     while True:
+        # Check reminders each loop
+        due_reminders = check_due_reminders(reminders)
+        for reminder in due_reminders:
+            print(f"\n⏰ Kalki Reminder: {reminder['text']} ({reminder['time']})\n")
+
         user_input = input("You: ").strip()
 
         if not user_input:
@@ -209,22 +339,20 @@ def main():
             print("Kalki: See you later.")
             break
 
-        # Handle slash commands
         if user_input.startswith("/"):
-            command_response = handle_command(user_input, memory, history)
+            command_response = handle_command(user_input, memory, history, tasks, reminders)
             if command_response:
                 print(f"Kalki: {command_response}")
                 if user_input.lower().strip() == "/clearhistory":
                     history = []
                 continue
 
-        # Store memory if user uses trigger phrases
         memory_response = maybe_store_memory(user_input, memory)
         if memory_response:
             print(f"Kalki: {memory_response}")
             continue
 
-        messages = build_messages(user_input, personality, memory, history)
+        messages = build_messages(user_input, personality, memory, history, tasks)
 
         try:
             response = chat(
@@ -235,7 +363,6 @@ def main():
 
             print(f"Kalki: {reply}")
 
-            # Save recent conversation
             history = add_to_history("user", user_input, history)
             history = add_to_history("assistant", reply, history)
 
