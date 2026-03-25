@@ -49,11 +49,11 @@ K.A.L.K.I. uses **Kognitive** functions to understand and analyze context, wheth
    ```bash
    python start_kalki.py
 
-  Contributing
+## Contributing
 
 We welcome contributions! Whether it’s a bug fix, a new feature, or an optimization, feel free to open issues or pull requests. Our goal is to make K.A.L.K.I. the ultimate personal assistant, and your contributions are crucial to achieving that vision.
 
-License
+## License
 
 Distributed under the MIT License. See LICENSE for more information.
 
