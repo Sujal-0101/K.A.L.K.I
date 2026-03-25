@@ -1,5 +1,8 @@
 import json
 import os
+import webbrowser
+import subprocess
+import time
 from datetime import datetime
 from ollama import chat
 
@@ -199,6 +202,69 @@ def generate_focus_prompt(tasks, memory):
 
 
 # -------------------------
+# SAFE ACTIONS
+# -------------------------
+
+def open_app(app_name):
+    app_name = app_name.lower().strip()
+
+    app_map = {
+        "notepad": "notepad",
+        "calculator": "calc",
+        "explorer": "explorer",
+        "vscode": "code",
+        "code": "code",
+        "browser": "start microsoft-edge:",
+        "edge": "start microsoft-edge:"
+    }
+
+    if app_name not in app_map:
+        return f"Unsupported app: {app_name}"
+
+    try:
+        if app_name in ["browser", "edge"]:
+            os.system(app_map[app_name])
+        else:
+            subprocess.Popen(app_map[app_name], shell=True)
+        return f"Opened {app_name}."
+    except Exception as e:
+        return f"Failed to open {app_name}: {e}"
+
+
+def open_website(site_name):
+    site_name = site_name.lower().strip()
+
+    site_map = {
+        "youtube": "https://www.youtube.com",
+        "google": "https://www.google.com",
+        "chatgpt": "https://chat.openai.com",
+        "gmail": "https://mail.google.com",
+        "github": "https://github.com"
+    }
+
+    if site_name not in site_map:
+        return f"Unsupported website: {site_name}"
+
+    try:
+        webbrowser.open(site_map[site_name])
+        return f"Opened {site_name}."
+    except Exception as e:
+        return f"Failed to open {site_name}: {e}"
+
+
+def start_timer(minutes_text):
+    if not minutes_text.isdigit():
+        return "Usage: /timer 5"
+
+    minutes = int(minutes_text)
+    seconds = minutes * 60
+
+    print(f"Kalki: Timer started for {minutes} minute(s).")
+    time.sleep(seconds)
+    return f"⏰ Timer finished: {minutes} minute(s)."
+
+
+# -------------------------
 # COMMAND SYSTEM
 # -------------------------
 
@@ -226,6 +292,12 @@ Available commands:
 /reminders - Show all reminders
 
 /focus - Get a productivity nudge
+
+/openapp <app> - Open a safe app
+/openweb <site> - Open a safe website
+/timer <minutes> - Start a timer
+/time - Show current time
+/date - Show current date
 """
 
     elif command == "/memory":
@@ -281,6 +353,21 @@ Available commands:
     elif command == "/focus":
         return generate_focus_prompt(tasks, memory)
 
+    elif command == "/openapp":
+        return open_app(argument)
+
+    elif command == "/openweb":
+        return open_website(argument)
+
+    elif command == "/timer":
+        return start_timer(argument)
+
+    elif command == "/time":
+        return datetime.now().strftime("Current time: %H:%M:%S")
+
+    elif command == "/date":
+        return datetime.now().strftime("Today's date: %Y-%m-%d")
+
     return None
 
 
@@ -316,7 +403,7 @@ Use this information when relevant, but do not mention it unnecessarily.
 # -------------------------
 
 def main():
-    print("Kalki v0.3 is running. Type 'exit' to quit.\n")
+    print("Kalki v0.4 is running. Type 'exit' to quit.\n")
 
     personality = load_personality()
     memory = load_memory()
@@ -325,7 +412,6 @@ def main():
     reminders = load_reminders()
 
     while True:
-        # Check reminders each loop
         due_reminders = check_due_reminders(reminders)
         for reminder in due_reminders:
             print(f"\n⏰ Kalki Reminder: {reminder['text']} ({reminder['time']})\n")
