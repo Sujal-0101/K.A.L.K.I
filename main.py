@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import webbrowser
 import subprocess
 import time
@@ -372,6 +373,61 @@ Available commands:
 
 
 # -------------------------
+# NATURAL LANGUAGE ROUTER
+# -------------------------
+
+def natural_language_to_command(user_input):
+    text = user_input.lower().strip()
+
+    # Open websites
+    for site in ["youtube", "google", "chatgpt", "gmail", "github"]:
+        if text in [f"open {site}", f"launch {site}", f"go to {site}"]:
+            return f"/openweb {site}"
+
+    # Open apps
+    for app in ["notepad", "calculator", "explorer", "vscode", "code", "browser", "edge"]:
+        if text in [f"open {app}", f"launch {app}", f"start {app}"]:
+            return f"/openapp {app}"
+
+    # Show tasks
+    if text in ["what are my tasks", "show my tasks", "list my tasks"]:
+        return "/tasks"
+
+    # Show goals
+    if text in ["what are my goals", "show my goals", "list my goals"]:
+        return "/goals"
+
+    # Show memory
+    if text in ["what do you remember", "show my memory", "what do you know about me"]:
+        return "/memory"
+
+    # Focus prompt
+    if text in ["motivate me", "focus me", "give me a focus prompt", "push me to work"]:
+        return "/focus"
+
+    # Add task
+    match = re.match(r"add (.+) to (my )?tasks?", text)
+    if match:
+        task_text = match.group(1).strip()
+        return f"/task {task_text}"
+
+    # Start timer
+    match = re.match(r"(start|set) a (\d+) minute timer", text)
+    if match:
+        minutes = match.group(2)
+        return f"/timer {minutes}"
+
+    # Reminder
+    match = re.match(r"remind me at (\d{1,2}:\d{2}) to (.+)", text)
+    if match:
+        time_part = match.group(1)
+        reminder_text = match.group(2).strip()
+        return f"/remind {time_part} {reminder_text}"
+
+    return None
+
+
+# -------------------------
 # BUILD MESSAGES
 # -------------------------
 
@@ -403,7 +459,7 @@ Use this information when relevant, but do not mention it unnecessarily.
 # -------------------------
 
 def main():
-    print("Kalki v0.4 is running. Type 'exit' to quit.\n")
+    print("Kalki v0.5 is running. Type 'exit' to quit.\n")
 
     personality = load_personality()
     memory = load_memory()
@@ -424,6 +480,12 @@ def main():
         if user_input.lower() in ["exit", "quit"]:
             print("Kalki: See you later.")
             break
+
+        # Convert natural language to safe commands
+        converted_command = natural_language_to_command(user_input)
+        if converted_command:
+            print(f"Kalki: Interpreted as -> {converted_command}")
+            user_input = converted_command
 
         if user_input.startswith("/"):
             command_response = handle_command(user_input, memory, history, tasks, reminders)
